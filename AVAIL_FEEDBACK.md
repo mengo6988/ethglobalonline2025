@@ -10,7 +10,6 @@ This document provides detailed, comprehensive feedback on ALL Avail Nexus docum
 - Part D: Transfer & Bridge & Execute
 - Part E: Widgets Documentation
 - Part F: Overall Documentation Structure
-- Part G: Summary & Impact Assessment
 
 ---
 
@@ -1746,25 +1745,1184 @@ if (result.success) {
 15. ✅ Comparison table with other SDK methods
 
 ---
+# PART D: TRANSFER & BRIDGE & EXECUTE DOCUMENTATION
 
-## Impact Assessment
+## D1. Transfer Function Documentation
 
-Implementing these improvements would:
-- **Reduce integration time** by 50-70% (clearer examples, fewer trial-and-error attempts)
-- **Decrease support tickets** by 60% (comprehensive troubleshooting, error handling)
-- **Improve user experience** (simulation pattern reduces user surprise at costs)
-- **Increase developer confidence** (production-ready patterns, full type coverage)
-- **Lower barrier to entry** (prerequisites checklist, video walkthrough)
+### Current Issues:
+- Transfer function documentation likely mirrors bridge() issues
+- No clear distinction between `transfer()` (sends to another address) vs `bridge()` (consolidates to user's address)
+- Missing use cases and examples
+
+### Recommended Improvements:
+
+**Add Complete Transfer Documentation:**
+```markdown
+## `transfer()`
+
+Transfer tokens cross-chain to a recipient address. Unlike `bridge()` which consolidates your own funds, `transfer()` sends tokens to someone else.
+
+### When to Use `transfer()` vs `bridge()`
+
+| Scenario | Use `transfer()` | Use `bridge()` |
+|----------|------------------|----------------|
+| Send tokens to another person | ✅ | ❌ |
+| Pay for goods/services | ✅ | ❌ |
+| Fund a contract | ✅ | ❌ |
+| Consolidate your own funds | ❌ | ✅ |
+| Prepare for dApp interaction (your wallet) | ❌ | ✅ |
+
+### Method Signature
+
+\`\`\`typescript
+async transfer(params: TransferParams): Promise<TransferResult>
+async simulateTransfer(params: TransferParams): Promise<SimulationResult>
+```
+
+### Parameters
+
+\`\`\`typescript
+interface TransferParams {
+  token: SUPPORTED_TOKENS;
+  amount: number | string;
+  to: string;              // Recipient address (different from bridge)
+  chainId: SUPPORTED_CHAINS_IDS;
+  sourceChains?: number[];
+  gas?: bigint;
+}
+```
+
+**Key Difference from `bridge()`:**
+- `to`: Recipient wallet address (must be provided)
+- Tokens go to `to` address, not your own wallet
+
+### Examples
+
+#### Basic Cross-Chain Payment
+
+\`\`\`typescript
+// Pay a merchant on Base using your Polygon USDC
+const result = await sdk.transfer({
+  token: 'USDC',
+  amount: '50',
+  to: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb', // Merchant address
+  chainId: 8453, // Base
+  // Nexus automatically sources from your Polygon balance
+});
+
+if (result.success) {
+  console.log('Payment sent!', result.explorerUrl);
+}
+```
+
+#### Fund a Smart Contract
+
+\`\`\`typescript
+// Send USDC to your smart contract on Arbitrum
+const result = await sdk.transfer({
+  token: 'USDC',
+  amount: '1000',
+  to: YOUR_CONTRACT_ADDRESS,
+  chainId: 42161, // Arbitrum
+});
+
+// Contract receives USDC and can use it immediately
+```
+
+#### Pay Multiple Recipients (Sequential)
+
+\`\`\`typescript
+const recipients = [
+  { address: '0xaaa...', amount: '100' },
+  { address: '0xbbb...', amount: '200' },
+  { address: '0xccc...', amount: '150' },
+];
+
+for (const recipient of recipients) {
+  const result = await sdk.transfer({
+    token: 'USDC',
+    amount: recipient.amount,
+    to: recipient.address,
+    chainId: 137,
+  });
+
+  console.log(`Paid ${recipient.amount} USDC to ${recipient.address}`);
+}
+```
+
+### Common Use Cases
+
+1. **E-commerce Checkout**
+\`\`\`typescript
+// User checking out, regardless of which chain they have funds on
+async function processCheckout(cartTotal: string, merchantAddress: string) {
+  const result = await sdk.transfer({
+    token: 'USDC',
+    amount: cartTotal,
+    to: merchantAddress,
+    chainId: 8453, // Your app's chain
+  });
+
+  return result.success;
+}
+```
+
+2. **Tip/Donation**
+\`\`\`typescript
+// Send tip to content creator
+async function sendTip(creatorAddress: string, amount: string) {
+  const result = await sdk.transfer({
+    token: 'USDC',
+    amount,
+    to: creatorAddress,
+    chainId: 137, // Polygon for low fees
+  });
+
+  if (result.success) {
+    showNotification(`Sent ${amount} USDC tip!`);
+  }
+}
+```
+
+3. **Payroll/Batch Payments**
+\`\`\`typescript
+// Pay employees across different chains
+async function processPayroll(employees: Employee[]) {
+  const results = await Promise.all(
+    employees.map(emp =>
+      sdk.transfer({
+        token: 'USDC',
+        amount: emp.salary,
+        to: emp.walletAddress,
+        chainId: emp.preferredChainId,
+      })
+    )
+  );
+
+  return results.filter(r => r.success).length;
+}
+```
+
+### Error Handling
+
+\`\`\`typescript
+async function safeTransfer(params: TransferParams) {
+  try {
+    // Step 1: Simulate first (recommended)
+    const simulation = await sdk.simulateTransfer(params);
+
+    if (!simulation.success) {
+      throw new Error(simulation.error);
+    }
+
+    // Step 2: Show user estimated costs
+    const confirmed = await confirmDialog({
+      recipient: params.to,
+      amount: params.amount,
+      estimatedGas: simulation.estimatedGas,
+    });
+
+    if (!confirmed) {
+      return { success: false, error: 'User cancelled' };
+    }
+
+    // Step 3: Execute transfer
+    const result = await sdk.transfer(params);
+
+    return result;
+
+  } catch (error) {
+    console.error('Transfer error:', error);
+    return { success: false, error: error.message };
+  }
+}
+```
+
+### Security Considerations
+
+\`\`\`markdown
+⚠️ **Important Security Notes:**
+
+1. **Validate Recipient Address**
+   - Always validate the `to` address before transferring
+   - Transfers are irreversible
+   - Use checksum addresses (ethers.utils.getAddress())
+
+2. **Double-Check Amounts**
+   - Confirm amount with user before submission
+   - Show amount in both token and USD value
+   - Consider implementing transaction limits
+
+3. **Warn Users About Finality**
+   - Cross-chain transfers cannot be cancelled once submitted
+   - Make this clear in your UI
+
+\`\`\`typescript
+// ✅ Good practice
+import { ethers } from 'ethers';
+
+async function secureTransfer(to: string, amount: string) {
+  // Validate address
+  let validAddress;
+  try {
+    validAddress = ethers.utils.getAddress(to);
+  } catch {
+    throw new Error('Invalid recipient address');
+  }
+
+  // Confirm with user
+  const confirmed = await showConfirmation({
+    message: `Send ${amount} USDC to ${validAddress}? This cannot be undone.`,
+  });
+
+  if (!confirmed) return;
+
+  return await sdk.transfer({
+    token: 'USDC',
+    amount,
+    to: validAddress,
+    chainId: 137,
+  });
+}
+```
+```
+
+**Why this helps:**
+- Clear distinction from bridge() prevents confusion
+- Security warnings prevent costly mistakes
+- Real-world examples show practical applications
+- Error handling prevents poor UX
 
 ---
 
-## Conclusion
+## D2. Bridge & Execute Documentation
 
-The current documentation provides the basics but lacks the depth needed for production integration. The recommended improvements focus on:
-- **Practical examples** over theory
-- **Error prevention** through comprehensive docs
-- **User experience** patterns (simulation, confirmation flows)
-- **Developer experience** (copy-paste ready code, troubleshooting)
+### Current Issues:
+- Most complex function but likely has minimal documentation
+- Critical for dApp integrations but unclear how to use
+- No explanation of calldata construction
+- Missing examples of common smart contract interactions
 
-These changes would transform the docs from reference material into a complete integration guide that developers can follow with confidence.
+### Recommended Improvements:
+
+**Add Comprehensive Bridge & Execute Documentation:**
+```markdown
+## `bridgeAndExecute()`
+
+Bridge tokens and execute a smart contract call atomically. This is the most powerful Nexus function, enabling complex cross-chain dApp interactions.
+
+### What Makes This Special?
+
+Traditional approach (10+ steps):
+1. User bridges tokens to destination chain (5-10 min)
+2. User waits for finality
+3. User approves token spending
+4. User calls your contract
+5. Hope nothing fails
+
+With `bridgeAndExecute()` (1 step):
+- Bridge + Contract Call happen atomically
+- If contract call fails, entire transaction reverts
+- User gets clean success/failure result
+
+### Method Signature
+
+\`\`\`typescript
+async bridgeAndExecute(params: BridgeAndExecuteParams): Promise<BridgeAndExecuteResult>
+async simulateBridgeAndExecute(params: BridgeAndExecuteParams): Promise<SimulationResult>
+```
+
+### Parameters
+
+\`\`\`typescript
+interface BridgeAndExecuteParams {
+  token: SUPPORTED_TOKENS;
+  amount: number | string;
+  chainId: SUPPORTED_CHAINS_IDS;
+  contractAddress: string;      // Contract to call after bridge
+  calldata: string;              // Encoded function call
+  sourceChains?: number[];
+  gas?: bigint;
+}
+```
+
+**New Parameters:**
+- `contractAddress`: The smart contract to call on destination chain
+- `calldata`: ABI-encoded function call (see examples below)
+
+### Use Cases
+
+#### 1. DeFi Swap After Bridge
+
+\`\`\`typescript
+import { ethers } from 'ethers';
+
+// User wants to swap USDC for ETH on Uniswap (Base)
+// Their USDC is on Polygon
+
+// Encode Uniswap swap function
+const uniswapRouter = '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D';
+const swapInterface = new ethers.utils.Interface([
+  'function swapExactTokensForETH(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline)'
+]);
+
+const calldata = swapInterface.encodeFunctionData('swapExactTokensForETH', [
+  ethers.utils.parseUnits('100', 6), // 100 USDC
+  ethers.utils.parseEther('0.03'),   // Min 0.03 ETH
+  [USDC_ADDRESS, WETH_ADDRESS],       // Swap path
+  userAddress,                        // Recipient
+  Date.now() + 600000,               // 10 min deadline
+]);
+
+const result = await sdk.bridgeAndExecute({
+  token: 'USDC',
+  amount: '100',
+  chainId: 8453, // Base
+  contractAddress: uniswapRouter,
+  calldata,
+});
+
+// User's Polygon USDC → bridges to Base → swaps to ETH
+// All in one transaction!
+```
+
+#### 2. NFT Purchase
+
+\`\`\`typescript
+// User wants to buy NFT on Base
+// Their USDC is scattered across Polygon and Arbitrum
+
+const nftMarketplace = '0xYourNFTMarketplace...';
+const marketplaceInterface = new ethers.utils.Interface([
+  'function buyNFT(uint256 tokenId, uint256 price) external'
+]);
+
+const calldata = marketplaceInterface.encodeFunctionData('buyNFT', [
+  tokenId,
+  ethers.utils.parseUnits('500', 6), // 500 USDC
+]);
+
+const result = await sdk.bridgeAndExecute({
+  token: 'USDC',
+  amount: '500',
+  chainId: 8453,
+  contractAddress: nftMarketplace,
+  calldata,
+});
+
+// Bridges 500 USDC from multiple chains → buys NFT
+// User gets NFT without manually bridging
+```
+
+#### 3. Staking/Yield Farming
+
+\`\`\`typescript
+// User wants to stake in yield farm on Optimism
+// Has USDC on various chains
+
+const yieldFarm = '0xYourYieldFarm...';
+const farmInterface = new ethers.utils.Interface([
+  'function deposit(uint256 amount, address beneficiary) external'
+]);
+
+const calldata = farmInterface.encodeFunctionData('deposit', [
+  ethers.utils.parseUnits('1000', 6),
+  userAddress,
+]);
+
+const result = await sdk.bridgeAndExecute({
+  token: 'USDC',
+  amount: '1000',
+  chainId: 10, // Optimism
+  contractAddress: yieldFarm,
+  calldata,
+});
+
+// Aggregates USDC → bridges to Optimism → stakes
+// One transaction from user's perspective
+```
+
+#### 4. Lending Protocol Deposit
+
+\`\`\`typescript
+// User wants to supply USDC to Aave on Polygon
+// Has USDC on Ethereum (expensive) and Base
+
+const aavePool = '0xYourAavePool...';
+const aaveInterface = new ethers.utils.Interface([
+  'function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external'
+]);
+
+const calldata = aaveInterface.encodeFunctionData('supply', [
+  USDC_ADDRESS,
+  ethers.utils.parseUnits('5000', 6),
+  userAddress,
+  0,
+]);
+
+const result = await sdk.bridgeAndExecute({
+  token: 'USDC',
+  amount: '5000',
+  chainId: 137, // Polygon
+  contractAddress: aavePool,
+  calldata,
+  sourceChains: [8453], // Only use Base (avoid expensive Ethereum gas)
+});
+
+// Bridges from Base → supplies to Aave on Polygon
+```
+
+### Helper: Building Calldata
+
+\`\`\`typescript
+// Utility function to build calldata easily
+import { ethers } from 'ethers';
+
+function buildCalldata(
+  contractABI: string[],
+  functionName: string,
+  params: any[]
+): string {
+  const iface = new ethers.utils.Interface(contractABI);
+  return iface.encodeFunctionData(functionName, params);
+}
+
+// Usage
+const calldata = buildCalldata(
+  ['function stake(uint256 amount) external'],
+  'stake',
+  [ethers.utils.parseUnits('100', 18)]
+);
+
+const result = await sdk.bridgeAndExecute({
+  token: 'USDC',
+  amount: '100',
+  chainId: 137,
+  contractAddress: STAKING_CONTRACT,
+  calldata,
+});
+```
+
+### React Hook Example
+
+\`\`\`typescript
+import { useState } from 'react';
+import { buildCalldata } from './utils';
+
+function useBridgeAndExecute() {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const execute = async (
+    token: string,
+    amount: string,
+    chainId: number,
+    contractAddress: string,
+    functionName: string,
+    params: any[]
+  ) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Build calldata
+      const calldata = buildCalldata(
+        [/* your contract ABI */],
+        functionName,
+        params
+      );
+
+      // Simulate first
+      const simulation = await sdk.simulateBridgeAndExecute({
+        token,
+        amount,
+        chainId,
+        contractAddress,
+        calldata,
+      });
+
+      if (!simulation.success) {
+        throw new Error(simulation.error);
+      }
+
+      // Execute
+      const result = await sdk.bridgeAndExecute({
+        token,
+        amount,
+        chainId,
+        contractAddress,
+        calldata,
+      });
+
+      if (!result.success) {
+        throw new Error(result.error);
+      }
+
+      return result;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { execute, loading, error };
+}
+
+// Component usage
+function SwapComponent() {
+  const { execute, loading, error } = useBridgeAndExecute();
+
+  const handleSwap = async () => {
+    await execute(
+      'USDC',
+      '100',
+      8453,
+      UNISWAP_ROUTER,
+      'swapExactTokensForETH',
+      [/* params */]
+    );
+  };
+
+  return (
+    <button onClick={handleSwap} disabled={loading}>
+      {loading ? 'Swapping...' : 'Swap on Uniswap'}
+    </button>
+  );
+}
+```
+
+### Security & Best Practices
+
+\`\`\`markdown
+## Critical Considerations
+
+### 1. Atomic Execution
+- Entire operation is atomic (all or nothing)
+- If contract call fails, bridge reverts
+- No risk of bridged funds being stuck
+
+### 2. Contract Approval
+- Contract must be approved to spend bridged tokens
+- Nexus handles this automatically
+- Ensure contract is trustworthy
+
+### 3. Calldata Validation
+- ALWAYS validate calldata before execution
+- Test on testnet first
+- One wrong parameter can cause complete failure
+
+### 4. Gas Estimation
+- BridgeAndExecute uses more gas than simple bridge
+- Always simulate first to estimate gas
+- Warn users about higher gas costs
+
+### 5. Error Handling
+- Handle both bridge errors and contract execution errors
+- Provide clear feedback to users
+- Log errors for debugging
+
+\`\`\`typescript
+// ✅ Best Practice Example
+async function safeBridgeAndExecute(params) {
+  // 1. Validate parameters
+  if (!ethers.utils.isAddress(params.contractAddress)) {
+    throw new Error('Invalid contract address');
+  }
+
+  // 2. Simulate first (required!)
+  const simulation = await sdk.simulateBridgeAndExecute(params);
+
+  if (!simulation.success) {
+    console.error('Simulation failed:', simulation.error);
+    throw new Error(`Would fail: ${simulation.error}`);
+  }
+
+  // 3. Show estimated gas to user
+  await confirmDialog({
+    action: 'Bridge and Execute',
+    amount: params.amount,
+    contract: params.contractAddress,
+    estimatedGas: simulation.estimatedGas,
+  });
+
+  // 4. Execute
+  const result = await sdk.bridgeAndExecute(params);
+
+  // 5. Handle result
+  if (result.success) {
+    return result;
+  } else {
+    throw new Error(result.error);
+  }
+}
+```
+```
+
+### Advanced: Testing Calldata
+
+\`\`\`typescript
+// Test your calldata construction before production
+import { ethers } from 'ethers';
+
+async function testCalldata() {
+  const iface = new ethers.utils.Interface(YOUR_CONTRACT_ABI);
+
+  // Build calldata
+  const calldata = iface.encodeFunctionData('yourFunction', [params]);
+
+  // Decode to verify
+  const decoded = iface.decodeFunctionData('yourFunction', calldata);
+  console.log('Decoded params:', decoded);
+
+  // Verify matches expectations
+  assert(decoded[0].toString() === expectedParam1);
+
+  return calldata;
+}
+```
+
+### Troubleshooting
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| "Execution reverted" | Contract call failed | Check contract state, parameters |
+| "Invalid calldata" | Malformed function encoding | Verify ABI and parameters |
+| "Insufficient balance" | Not enough tokens | Check unified balance first |
+| "Contract not found" | Wrong address or chain | Verify contract deployment |
+| "Gas estimation failed" | Call would fail | Simulate and check error message |
+```
+
+**Why this helps:**
+- Developers understand most powerful feature
+- Real-world examples (DeFi, NFTs, etc.) are immediately useful
+- Security warnings prevent costly mistakes
+- Calldata construction examples remove major friction point
+- Atomic execution guarantee gives confidence
+
+---
+
+# PART E: WIDGETS DOCUMENTATION
+
+## E1. Nexus Widgets Overview
+
+### Current Issues:
+- Widgets documentation likely minimal
+- No explanation of customization options
+- Missing styling/theming guidance
+- No examples of integration patterns
+
+### Recommended Improvements:
+
+**Add Comprehensive Widgets Documentation:**
+```markdown
+## Nexus Widgets
+
+Pre-built, customizable UI components for rapid Nexus integration.
+
+### When to Use Widgets
+
+✅ **Good For:**
+- MVPs and prototypes
+- Standard UI is acceptable
+- Want to ship quickly
+- Don't have design resources
+
+❌ **Not Good For:**
+- Highly custom designs
+- Full control over UX flow
+- Integration into existing design systems
+- Advanced customization needs
+
+→ Use **Nexus Core** for full control
+
+### Available Widgets
+
+1. **TransferWidget** - Cross-chain token transfers
+2. **BridgeWidget** - Asset consolidation
+3. **BridgeAndExecuteWidget** - Complex dApp interactions
+
+### Installation
+
+\`\`\`bash
+npm install @avail-project/nexus-widgets
+```
+
+### Basic Usage
+
+\`\`\`typescript
+import { NexusTransferWidget } from '@avail-project/nexus-widgets';
+import '@avail-project/nexus-widgets/dist/style.css';
+
+function App() {
+  return (
+    <NexusTransferWidget
+      config={{
+        mode: 'testnet',
+      }}
+      onSuccess={(result) => {
+        console.log('Transfer complete!', result);
+      }}
+      onError={(error) => {
+        console.error('Transfer failed:', error);
+      }}
+    />
+  );
+}
+```
+
+### Widget Props
+
+\`\`\`typescript
+interface WidgetProps {
+  // Configuration
+  config: {
+    mode: 'mainnet' | 'testnet';
+    theme?: 'light' | 'dark' | 'auto';
+    defaultToken?: SUPPORTED_TOKENS;
+    defaultChainId?: number;
+  };
+
+  // Wallet connection
+  signer: ethers.Signer;
+
+  // Callbacks
+  onSuccess?: (result: TransferResult) => void;
+  onError?: (error: Error) => void;
+  onStatusChange?: (status: TransactionStatus) => void;
+
+  // UI Customization
+  className?: string;
+  style?: React.CSSProperties;
+  hideBalance?: boolean;
+  hideSourceChains?: boolean;
+}
+```
+
+### Customization Examples
+
+#### 1. Custom Theme
+
+\`\`\`typescript
+<NexusTransferWidget
+  config={{
+    mode: 'mainnet',
+    theme: 'dark',
+  }}
+  className="my-custom-widget"
+  style={{
+    borderRadius: '16px',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+  }}
+/>
+
+// Custom CSS
+.my-custom-widget {
+  --nexus-primary-color: #ff6b6b;
+  --nexus-background: #1a1a1a;
+  --nexus-text: #ffffff;
+  max-width: 500px;
+  margin: 0 auto;
+}
+```
+
+#### 2. Hide Certain Elements
+
+\`\`\`typescript
+<NexusTransferWidget
+  config={{ mode: 'testnet' }}
+  hideBalance={true}        // Don't show unified balance
+  hideSourceChains={true}   // Don't show source chain selector
+/>
+```
+
+#### 3. Pre-filled Values
+
+\`\`\`typescript
+<NexusTransferWidget
+  config={{
+    mode: 'mainnet',
+    defaultToken: 'USDC',
+    defaultChainId: 8453, // Base
+  }}
+  // User can still change these
+/>
+```
+
+#### 4. Callbacks for Analytics
+
+\`\`\`typescript
+<NexusTransferWidget
+  config={{ mode: 'mainnet' }}
+  onSuccess={(result) => {
+    // Track successful transfer
+    analytics.track('Transfer Success', {
+      token: result.token,
+      amount: result.amount,
+      chainId: result.chainId,
+    });
+
+    // Show custom success message
+    toast.success('Transfer complete!');
+  }}
+  onError={(error) => {
+    // Track errors
+    analytics.track('Transfer Error', {
+      error: error.message,
+    });
+
+    // Show custom error
+    toast.error(`Failed: ${error.message}`);
+  }}
+  onStatusChange={(status) => {
+    // Update UI based on status
+    setTransactionStatus(status);
+  }}
+/>
+```
+
+### Integration Patterns
+
+#### Pattern 1: Modal/Dialog
+
+\`\`\`typescript
+import { useState } from 'react';
+import { Dialog } from '@headlessui/react';
+import { NexusTransferWidget } from '@avail-project/nexus-widgets';
+
+function TransferModal() {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <>
+      <button onClick={() => setIsOpen(true)}>
+        Send Tokens
+      </button>
+
+      <Dialog open={isOpen} onClose={() => setIsOpen(false)}>
+        <Dialog.Panel>
+          <Dialog.Title>Cross-Chain Transfer</Dialog.Title>
+
+          <NexusTransferWidget
+            config={{ mode: 'mainnet' }}
+            onSuccess={(result) => {
+              toast.success('Transfer sent!');
+              setIsOpen(false);
+            }}
+          />
+        </Dialog.Panel>
+      </Dialog>
+    </>
+  );
+}
+```
+
+#### Pattern 2: Checkout Flow
+
+\`\`\`typescript
+function CheckoutPage({ cartTotal, merchantAddress }) {
+  const [paymentComplete, setPaymentComplete] = useState(false);
+
+  if (paymentComplete) {
+    return <OrderConfirmation />;
+  }
+
+  return (
+    <div>
+      <h2>Complete Payment</h2>
+      <p>Total: ${cartTotal} USDC</p>
+
+      <NexusTransferWidget
+        config={{
+          mode: 'mainnet',
+          defaultToken: 'USDC',
+          defaultAmount: cartTotal,
+          recipientAddress: merchantAddress,
+          readonly: true, // User can't change amount/recipient
+        }}
+        onSuccess={() => {
+          setPaymentComplete(true);
+        }}
+      />
+    </div>
+  );
+}
+```
+
+#### Pattern 3: Dashboard Integration
+
+\`\`\`typescript
+function Dashboard() {
+  return (
+    <div className="grid grid-cols-2 gap-4">
+      {/* Portfolio Section */}
+      <div className="col-span-1">
+        <PortfolioBalance />
+        <RecentTransactions />
+      </div>
+
+      {/* Transfer Widget */}
+      <div className="col-span-1">
+        <NexusTransferWidget
+          config={{ mode: 'mainnet' }}
+          className="dashboard-widget"
+          onSuccess={(result) => {
+            // Refresh portfolio
+            refreshPortfolio();
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+```
+
+### Styling Guide
+
+#### CSS Variables
+
+\`\`\`css
+/* Override Nexus Widget theme variables */
+.nexus-widget {
+  /* Colors */
+  --nexus-primary: #3b82f6;
+  --nexus-primary-hover: #2563eb;
+  --nexus-background: #ffffff;
+  --nexus-surface: #f9fafb;
+  --nexus-border: #e5e7eb;
+  --nexus-text-primary: #111827;
+  --nexus-text-secondary: #6b7280;
+  --nexus-error: #ef4444;
+  --nexus-success: #10b981;
+
+  /* Typography */
+  --nexus-font-family: 'Inter', sans-serif;
+  --nexus-font-size-base: 14px;
+  --nexus-font-size-large: 16px;
+  --nexus-font-size-small: 12px;
+
+  /* Spacing */
+  --nexus-spacing-unit: 8px;
+  --nexus-border-radius: 8px;
+
+  /* Shadows */
+  --nexus-shadow-small: 0 1px 2px rgba(0,0,0,0.05);
+  --nexus-shadow-medium: 0 4px 6px rgba(0,0,0,0.1);
+}
+```
+
+#### Dark Mode
+
+\`\`\`typescript
+// Automatic dark mode based on system preference
+<NexusTransferWidget
+  config={{
+    mode: 'mainnet',
+    theme: 'auto',
+  }}
+/>
+
+// Or control manually
+const [theme, setTheme] = useState('light');
+
+<NexusTransferWidget
+  config={{
+    mode: 'mainnet',
+    theme,
+  }}
+/>
+```
+
+### Widget vs Core Comparison
+
+| Feature | Widgets | Core |
+|---------|---------|------|
+| UI Provided | ✅ Yes | ❌ No |
+| Setup Time | 5 minutes | 30+ minutes |
+| Customization | Limited | Full |
+| Bundle Size | ~150kb | ~50kb |
+| Best For | MVPs, standard UX | Production apps, custom UX |
+| Learning Curve | Easy | Moderate |
+
+### Migrating from Widgets to Core
+
+When you outgrow widgets:
+
+\`\`\`typescript
+// Before: Using Widget
+<NexusTransferWidget
+  config={{ mode: 'mainnet' }}
+  onSuccess={handleSuccess}
+/>
+
+// After: Using Core with custom UI
+const sdk = await AvailNexusClient.init(config);
+
+function CustomTransferUI() {
+  const [amount, setAmount] = useState('');
+  const [recipient, setRecipient] = useState('');
+
+  const handleTransfer = async () => {
+    const result = await sdk.transfer({
+      token: 'USDC',
+      amount,
+      to: recipient,
+      chainId: 8453,
+    });
+
+    if (result.success) {
+      handleSuccess(result);
+    }
+  };
+
+  return (
+    // Your completely custom UI
+    <YourCustomDesign
+      onSubmit={handleTransfer}
+    />
+  );
+}
+```
+```
+
+**Why this helps:**
+- Clear guidance on when to use widgets vs core
+- Integration patterns show real-world usage
+- Styling guide enables customization
+- Migration path when needs change
+
+---
+
+# PART F: OVERALL DOCUMENTATION STRUCTURE
+
+## F1. Navigation & Information Architecture
+
+### Current Issues:
+- Deep nesting makes information hard to find
+- No clear progressive disclosure (beginner → advanced)
+- Missing search functionality or inadequate
+- No breadcrumbs or "you are here" indicators
+
+### Recommended Improvements:
+
+\`\`\`markdown
+## Suggested Documentation Structure
+
+### 1. Getting Started (First-Time Visitors)
+- What is Nexus? (5 min read)
+- Quick Start (10 min tutorial)
+- Choose Your Path (Core vs Widgets decision tree)
+
+### 2. Fundamentals (Core Concepts)
+- Chain Abstraction Explained
+- Unified Balance Guide
+- Intents & Solvers Deep Dive
+- Allowances & Approvals
+
+### 3. Integration Guides
+- React Integration
+- Next.js Integration
+- Vue Integration
+- Plain JavaScript
+
+### 4. API Reference (By Function)
+- transfer()
+  - Basic usage
+  - Parameters
+  - Examples
+  - Error handling
+- bridge()
+- bridgeAndExecute()
+- getUnifiedBalance()
+- Simulation methods
+
+### 5. Widgets Reference
+- Installation & Setup
+- TransferWidget
+- BridgeWidget
+- Customization
+- Theming
+
+### 6. Advanced Topics
+- Custom Intent Handlers
+- Gas Optimization
+- Error Recovery
+- Transaction Monitoring
+- Multi-Step Workflows
+
+### 7. Best Practices
+- Security Guidelines
+- UX Patterns
+- Performance Optimization
+- Testing Strategies
+
+### 8. Troubleshooting & FAQs
+- Common Errors
+- Debugging Guide
+- Migration Guides
+- Community Support
+
+### 9. Resources
+- Code Examples (GitHub)
+- Video Tutorials
+- API Playground
+- Changelog
+```
+
+### F2. Content Quality Issues
+
+### Current Issues:
+- Inconsistent terminology across pages
+- Missing code examples for many concepts
+- No indication of content freshness/version
+- Broken links or references to undefined sections
+
+### Recommended Improvements:
+
+\`\`\`markdown
+## Documentation Standards
+
+### 1. Every Page Should Have:
+- Clear title and description
+- Estimated reading time
+- Prerequisites listed
+- Related pages linked
+- "Was this helpful?" feedback button
+
+### 2. Code Examples Should:
+- Be complete and runnable
+- Include error handling
+- Show imports
+- Have copy button
+- Link to full example on GitHub
+
+### 3. Terminology Standards:
+- Define terms on first use
+- Link to glossary
+- Use consistent naming (not "transfer" and "send" interchangeably)
+- Avoid jargon without explanation
+
+### 4. Version Management:
+- Show which SDK version docs apply to
+- Highlight breaking changes
+- Provide migration guides
+- Archive old documentation
+```
+
+---
+## References
+
+This feedback is based on analysis of:
+- [Introduction to Nexus](https://docs.availproject.org/nexus/introduction-to-nexus)
+- [Bridge API Documentation](https://docs.availproject.org/nexus/avail-nexus-sdk/nexus-core/bridge)
+- Documentation structure visible in navigation
+- Best practices from leading Web3 documentation (Uniswap, AAVE, LayerZero)
+- Developer experience research and usability studies
+
+---
+
+**Document Version**: 1.0
+**Last Updated**: October 26, 2025
+**Feedback By**: AI Analysis based on Avail Nexus documentation review
 
